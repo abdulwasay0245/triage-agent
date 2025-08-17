@@ -5,9 +5,9 @@ from agents import Agent, Runner, AsyncOpenAI, OpenAIChatCompletionsModel
 from agents.run import RunConfig
 from fastapi.testclient import TestClient
 from fastapi.middleware.cors import CORSMiddleware
+from agents import enable_verbose_stdout_logging
 
-
-
+# enable_verbose_stdout_logging()
 app = FastAPI()
 
 load_dotenv()
@@ -44,29 +44,74 @@ education_summary_agent = Agent(
     instructions="You are an expert content writer,and be recieving some education details , eg: Work experience like where did the jobs and job roles,skills, education year , university or institute name degree or field name make a good summary and professional summary of it of max 4 lines.Especially dont include any heading or any other thing like here is your summary just only give me only 1 summary ",
     model=model,
 )
+job_summary_agent = Agent(
+    name="Job Summary Agent",
+    instructions='''
+    You are an expert content writer.  
+You will be given structured job details (work experience, job roles, skills, education, years, university/institute, degree/field).  
 
+Generate a concise professional summary (maximum 4 lines).  
 
-triage_agent = Agent(
-    name="Triage Agent",
-    instructions="You are an expert project or working manager, defining and giving task to your employee, give the education details to the education summary agent, and then return the summary which the agent provides",
+The output must follow these rules strictly:  
+- Return **only valid JSON** (no markdown formatting, no triple backticks, no "json" labels).  
+- Create a top-level key `"job_summary"`.  
+- `"job_summary"` must be an array of exactly **3 bullet points**.  
+- Each bullet point should describe what the person did in this role or what they learned.  
+- Do not include any text outside the JSON object.  
+
+Example output:
+{
+  "job_summary": [
+    "Led software development projects, collaborating with cross-functional teams to deliver scalable solutions.",
+    "Enhanced expertise in Python, FastAPI, and REST APIs while ensuring code quality and performance.",
+    "Applied problem-solving and communication skills to improve project efficiency and client satisfaction."
+  ]
+}
+''',
     model=model,
-    handoffs=[education_summary_agent],
-    tools=[]
 )
+
+
+# triage_agent = Agent(
+#     name="Triage Agent",
+#     instructions="""
+# You are an expert project manager. 
+# You will receive combined information that includes both job experience and educational background.
+
+# Step 1: Extract the education-related part of the input and send it to the education_summary_agent.
+# Step 2: Extract the job-related part of the input and send it to the job_summary_agent.
+# Step 3: Collect both summaries and return them in a single JSON with two keys: 
+#     - "education_summary": (value from education_summary_agent)
+#     - "job_summary": (value from job_summary_agent)
+
+# Do NOT add any other commentary. Return only JSON.
+# """,
+#     model=model,
+#     handoffs=[education_summary_agent,job_summary_agent],
+#     tools=[]
+# )
 
 @app.post("/triage")
 async def handle_request(input_data: dict):
     try:
         user_input = "\n".join([f"{key.capitalize()}: {value}" for key, value in input_data.items()])
-        # print(user_input)
-        result = await Runner.run(  
-            triage_agent,
+        
+        education_result = await Runner.run(  
+            education_summary_agent,
             user_input, 
-              # or just input_data if it's a string
+             
         )
-        print(result.final_output)
+        job_result = await Runner.run(  
+            job_summary_agent,
+            user_input, 
+              
+        )
+       
+        print("this is education summary",education_result.final_output + "\n")
+        print("this is job summary",    job_result.final_output + "\n")
+        
 
-        return {"summary": result.final_output}
+        return {"education_summary": education_result.final_output,"job_summary": job_result.final_output}
     except Exception as e:
         return {"error": str(e)}
     
